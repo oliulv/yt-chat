@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YT Chat</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app" class="container">
+        <div id="status-bar" class="status-bar">
+            <span id="status-text">INITIALIZING...</span>
+            <button id="settings-btn" class="icon-btn">⚙</button>
+        </div>
+        
+        <div id="chat-history" class="chat-history">
+            <div class="message system">
+                <span class="prefix">></span> SYSTEM READY. WAITING FOR VIDEO CONTEXT...
+            </div>
+        </div>
+
+        <div class="input-area">
+            <span class="prompt">></span>
+            <textarea id="user-input" placeholder="ENTER COMMAND..." rows="1"></textarea>
+            <button id="send-btn">EXEC</button>
+        </div>
+    </div>
+    <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
+

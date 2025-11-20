@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            padding: 40px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>// SYSTEM CONFIGURATION</h1>
+        
+        <div class="form-group">
+            <label for="apiKey">OPENAI_API_KEY</label>
+            <input type="password" id="apiKey" placeholder="sk-...">
+        </div>
+
+        <div class="form-group">
+            <label for="model">MODEL_SELECTION</label>
+            <select id="model">
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o-mini</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+            </select>
+        </div>
+
+        <div class="actions">
+            <button id="save-btn">SAVE_CONFIG</button>
+            <span id="status-msg" class="hidden">SAVED.</span>
+        </div>
+    </div>
+    <script src="options.js"></script>
+</body>
+</html>
+
