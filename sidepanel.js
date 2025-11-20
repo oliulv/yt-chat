@@ -29,6 +29,13 @@ class SidePanelApp {
                 this.checkCurrentTab();
             }
         });
+
+        // Listen for storage changes to update API key instantly
+        chrome.storage.onChanged.addListener((changes, namespace) => {
+            if (namespace === 'sync' && (changes.apiKey || changes.model)) {
+                this.loadSettings();
+            }
+        });
     }
 
     setupEventListeners() {
@@ -50,6 +57,14 @@ class SidePanelApp {
         if (settings.apiKey) {
             this.openaiService = new OpenAIService(settings.apiKey, settings.model);
             this.updateStatus('SYSTEM READY.');
+            
+            // Remove any persistent error messages about missing API key
+            const errorMsgs = document.querySelectorAll('.message.system');
+            errorMsgs.forEach(msg => {
+                if (msg.textContent.includes('API KEY MISSING')) {
+                    msg.remove();
+                }
+            });
         } else {
             this.updateStatus('API KEY MISSING. CONFIG REQUIRED.');
             this.appendMessage('system', 'PLEASE CONFIGURE API KEY IN SETTINGS.');
