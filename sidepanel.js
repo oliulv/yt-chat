@@ -85,7 +85,7 @@ class SidePanelApp {
         if (tab && tab.url && tab.url.includes('youtube.com/watch')) {
             this.updateStatus('DETECTED VIDEO. FETCHING DATA...');
             try {
-                this.transcript = await this.transcriptService.getTranscript(tab.id);
+                this.transcript = await this.transcriptService.getTranscript(tab.id, tab.url);
                 
                 // DEBUG: Log transcript length
                 console.log(`[SidePanel] Transcript loaded. Length: ${this.transcript ? this.transcript.length : 0}`);
