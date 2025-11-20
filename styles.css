@@ -86,7 +86,7 @@ body {
 textarea {
     flex: 1;
     background: transparent;
-    border: 1px solid var(--border-color); /* Added border for better visibility */
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     color: var(--text-color);
     font-family: var(--font-mono);
@@ -94,9 +94,11 @@ textarea {
     outline: none;
     padding: 8px;
     line-height: 1.5;
-    min-height: 60px; /* Increased default height */
+    height: auto; /* Allow it to be set by JS */
+    min-height: 38px; /* Single line height approx */
     max-height: 200px;
     transition: border-color 0.2s;
+    overflow-y: hidden; /* Hide scrollbar for clean look */
 }
 
 textarea:focus {
@@ -113,7 +115,7 @@ button {
     transition: all 0.2s;
     text-transform: uppercase;
     font-size: 12px;
-    height: 38px; /* Match approximate button height to input */
+    height: 38px; /* Fixed height for button */
 }
 
 button:hover {

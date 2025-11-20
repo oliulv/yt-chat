@@ -40,11 +40,19 @@ class SidePanelApp {
 
     setupEventListeners() {
         this.sendBtn.addEventListener('click', () => this.handleSendMessage());
-        this.userInput.addEventListener('keypress', (e) => {
+        
+        // Handle Enter key and Shift+Enter for new line
+        this.userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 this.handleSendMessage();
             }
+        });
+
+        // Auto-resize textarea
+        this.userInput.addEventListener('input', () => {
+            this.userInput.style.height = 'auto';
+            this.userInput.style.height = Math.min(this.userInput.scrollHeight, 72) + 'px'; // 72px is roughly 3 lines
         });
         
         this.settingsBtn.addEventListener('click', () => {
@@ -106,8 +114,9 @@ class SidePanelApp {
             }
         }
 
-        // Clear input
+        // Clear input and reset height
         this.userInput.value = '';
+        this.userInput.style.height = 'auto';
         
         // Add user message
         this.appendMessage('user', text);
@@ -116,6 +125,7 @@ class SidePanelApp {
         this.updateStatus('PROCESSING...');
 
         try {
+            // Pass this.transcript explicitly
             const response = await this.openaiService.generateResponse(this.chatHistory, this.transcript);
             
             this.appendMessage('bot', response);
