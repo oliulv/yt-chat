@@ -86,6 +86,10 @@ class SidePanelApp {
             this.updateStatus('DETECTED VIDEO. FETCHING DATA...');
             try {
                 this.transcript = await this.transcriptService.getTranscript(tab.id);
+                
+                // DEBUG: Log transcript length
+                console.log(`[SidePanel] Transcript loaded. Length: ${this.transcript ? this.transcript.length : 0}`);
+                
                 this.updateStatus('TRANSCRIPT LOADED. READY.');
                 this.appendMessage('system', `CONTEXT ACQUIRED: ${tab.title.toUpperCase()}`);
             } catch (error) {
@@ -123,6 +127,9 @@ class SidePanelApp {
         this.chatHistory.push({ role: 'user', content: text });
 
         this.updateStatus('PROCESSING...');
+
+        // DEBUG: Check what is being passed
+        console.log(`[SidePanel] Sending message. Transcript length: ${this.transcript ? this.transcript.length : 0}`);
 
         try {
             // Pass this.transcript explicitly
