@@ -45,6 +45,12 @@ body {
     letter-spacing: 1px;
 }
 
+.status-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
 .chat-history {
     flex: 1;
     overflow-y: auto;
@@ -154,6 +160,34 @@ button:hover {
     height: auto;
 }
 
+.persist-toggle {
+    background: var(--border-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    font-family: var(--font-mono);
+    padding: 4px 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    height: auto;
+    opacity: 0.7;
+}
+
+.persist-toggle:hover {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+    opacity: 1;
+}
+
+.persist-toggle.active {
+    background: rgba(35, 134, 54, 0.2);
+    border-color: var(--success-color);
+    color: var(--success-color);
+    opacity: 1;
+}
+
 /* Settings Specific */
 .form-group {
     margin-bottom: 20px;
@@ -189,16 +223,77 @@ input:focus, select:focus {
     margin-left: 10px;
 }
 
-/* Markdown styles */
-.markdown-body pre {
-    background-color: #161b22;
-    padding: 10px;
-    overflow: auto;
-    border-radius: 4px;
+/* Markdown styles - maintaining cryptic aesthetic */
+.message-content {
+    display: block;
 }
 
-.markdown-body code {
-    background-color: rgba(110, 118, 129, 0.4);
-    padding: 0.2em 0.4em;
+.message-content strong {
+    font-weight: bold;
+    color: var(--accent-color);
+    /* Subtle glow effect for bold text */
+    text-shadow: 0 0 2px rgba(230, 230, 230, 0.3);
+}
+
+.message-content em {
+    font-style: italic;
+    opacity: 0.9;
+}
+
+.message-content code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+.message-content .inline-code {
+    background-color: rgba(110, 118, 129, 0.2);
+    padding: 0.15em 0.4em;
     border-radius: 3px;
+    border: 1px solid rgba(110, 118, 129, 0.3);
+    color: #d2d5d9;
+}
+
+.message-content .code-block {
+    background-color: rgba(10, 15, 24, 0.8);
+    padding: 10px;
+    margin: 8px 0;
+    overflow-x: auto;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.message-content .code-block code {
+    display: block;
+    color: #c9d1d9;
+    white-space: pre;
+    font-size: 0.85em;
+    line-height: 1.4;
+}
+
+/* List styles - maintaining cryptic aesthetic */
+.message-content .markdown-list {
+    margin: 8px 0;
+    padding-left: 24px;
+    list-style-position: outside;
+}
+
+.message-content .markdown-list ul,
+.message-content .markdown-list ol {
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.message-content .markdown-list li {
+    margin: 4px 0;
+    line-height: 1.5;
+    color: var(--text-color);
+}
+
+.message-content .markdown-list ul {
+    list-style-type: disc;
+}
+
+.message-content .markdown-list ol {
+    list-style-type: decimal;
 }
