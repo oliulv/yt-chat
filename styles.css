@@ -297,3 +297,47 @@ input:focus, select:focus {
 .message-content .markdown-list ol {
     list-style-type: decimal;
 }
+
+/* Header styles - maintaining cryptic aesthetic */
+.message-content .markdown-header {
+    margin: 16px 0 8px 0;
+    font-weight: bold;
+    color: var(--accent-color);
+    font-family: var(--font-mono);
+    line-height: 1.3;
+}
+
+.message-content .markdown-header:first-child {
+    margin-top: 0;
+}
+
+.message-content .markdown-header-1 {
+    font-size: 1.3em;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.message-content .markdown-header-2 {
+    font-size: 1.2em;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+    padding-bottom: 3px;
+}
+
+.message-content .markdown-header-3 {
+    font-size: 1.1em;
+    color: var(--text-color);
+}
+
+.message-content .markdown-header-4 {
+    font-size: 1.05em;
+    color: var(--text-color);
+}
+
+.message-content .markdown-header-5,
+.message-content .markdown-header-6 {
+    font-size: 1em;
+    color: var(--text-color);
+    opacity: 0.9;
+}

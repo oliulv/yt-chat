@@ -33,9 +33,25 @@ class SidePanelApp {
 
         // Listen for tab updates to reload context
         chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-            if (changeInfo.status === 'complete' && tab.active) {
+            console.log('[SidePanel] Tab updated', {
+                tabId,
+                changeInfo,
+                url: tab?.url,
+                status: changeInfo.status,
+                active: tab?.active
+            });
+            
+            // Check on URL change or page complete
+            if (changeInfo.url || (changeInfo.status === 'complete' && tab.active)) {
+                console.log('[SidePanel] Triggering checkCurrentTab from tab update');
                 this.checkCurrentTab();
             }
+        });
+        
+        // Also listen for tab activation to catch video changes when switching tabs
+        chrome.tabs.onActivated.addListener((activeInfo) => {
+            console.log('[SidePanel] Tab activated', activeInfo);
+            setTimeout(() => this.checkCurrentTab(), 100); // Small delay to ensure URL is updated
         });
 
         // Listen for storage changes to update API key and persistent mode
@@ -137,53 +153,132 @@ class SidePanelApp {
     async checkCurrentTab() {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         
+        console.log('[SidePanel] checkCurrentTab called', {
+            url: tab?.url,
+            currentVideoId: this.currentVideoId,
+            persistentMode: this.persistentMode,
+            chatHistoryLength: this.chatHistory.length
+        });
+        
         if (tab && tab.url && tab.url.includes('youtube.com/watch')) {
             const videoId = this.extractVideoId(tab.url);
             
+            console.log('[SidePanel] Video ID extracted', {
+                videoId,
+                currentVideoId: this.currentVideoId,
+                videoChanged: videoId && videoId !== this.currentVideoId
+            });
+            
+            // Track if this is a new video before we update currentVideoId
+            const isNewVideo = videoId && videoId !== this.currentVideoId;
+            
             // Check if video changed
-            if (videoId && videoId !== this.currentVideoId) {
+            if (isNewVideo) {
+                console.log('[SidePanel] Video changed detected', {
+                    from: this.currentVideoId,
+                    to: videoId,
+                    persistentMode: this.persistentMode
+                });
+                
                 // Video changed
                 if (!this.persistentMode) {
                     // Default mode: Reset chat for new video
+                    console.log('[SidePanel] Resetting chat for new video (default mode)');
                     this.resetChatForNewVideo();
                 } else {
                     // Persistent mode: Keep chat history, just update video ID
                     // Load chat history from storage if sidepanel was closed
                     // (But don't overwrite if we already have it in memory)
                     if (this.chatHistory.length === 0) {
+                        console.log('[SidePanel] Loading chat history from storage (persistent mode)');
                         await this.loadChatHistory();
+                    } else {
+                        console.log('[SidePanel] Keeping existing chat history (persistent mode)');
                     }
                 }
                 
+                const previousVideoId = this.currentVideoId;
                 this.currentVideoId = videoId;
                 this.transcriptSent = false; // New video, need to send transcript
+                
+                console.log('[SidePanel] Video ID updated', {
+                    previousVideoId,
+                    newVideoId: this.currentVideoId,
+                    transcriptSent: this.transcriptSent
+                });
             } else if (videoId === this.currentVideoId) {
-                // Same video, do nothing
+                // Same video
+                console.log('[SidePanel] Same video detected, checking if transcript exists', {
+                    videoId,
+                    hasTranscript: !!this.transcript,
+                    transcriptLength: this.transcript?.length || 0
+                });
+                
+                // If we don't have a transcript, load it
+                if (!this.transcript) {
+                    console.log('[SidePanel] No transcript found for same video, loading...');
+                    // Fall through to load transcript
+                } else {
+                    // Same video and we have transcript, do nothing
+                    console.log('[SidePanel] Same video with transcript, skipping reload');
+                    return;
+                }
+            } else if (!videoId) {
+                console.warn('[SidePanel] Could not extract video ID from URL', tab.url);
+                this.updateStatus('IDLE. NO VIDEO DETECTED.');
                 return;
             }
 
-            // Load transcript
+            // Load transcript (for new video or if missing)
+            console.log('[SidePanel] Loading transcript...', {
+                videoId: this.currentVideoId,
+                tabId: tab.id,
+                url: tab.url
+            });
+            
             this.updateStatus('DETECTED VIDEO. FETCHING DATA...');
             try {
                 this.transcript = await this.transcriptService.getTranscript(tab.id, tab.url);
                 
                 // DEBUG: Log transcript length
-                console.log(`[SidePanel] Transcript loaded. Length: ${this.transcript ? this.transcript.length : 0}`);
+                console.log('[SidePanel] Transcript loaded successfully', {
+                    length: this.transcript ? this.transcript.length : 0,
+                    videoId: this.currentVideoId,
+                    transcriptSent: this.transcriptSent
+                });
                 
                 this.updateStatus('TRANSCRIPT LOADED. READY.');
                 
-                // Only show system message if it's a new video (not already in chat)
-                if (videoId !== this.currentVideoId || this.chatHistory.length === 0) {
+                // Show system message for new video context
+                // Show if this was a new video or if chat is empty (first load)
+                const shouldShowMessage = isNewVideo || (this.chatHistory.length === 0 && !this.transcriptSent);
+                
+                if (shouldShowMessage) {
+                    console.log('[SidePanel] Adding system message for new context', {
+                        isNewVideo,
+                        chatHistoryLength: this.chatHistory.length,
+                        transcriptSent: this.transcriptSent,
+                        videoId,
+                        currentVideoId: this.currentVideoId
+                    });
                     this.appendMessage('system', `CONTEXT ACQUIRED: ${tab.title.toUpperCase()}`);
                 }
                 
-                this.currentVideoId = videoId;
+                // Ensure currentVideoId is set (in case it wasn't set earlier, e.g., first load)
+                if (!this.currentVideoId && videoId) {
+                    this.currentVideoId = videoId;
+                    console.log('[SidePanel] Set currentVideoId for first time', videoId);
+                }
             } catch (error) {
-                console.error(error);
+                console.error('[SidePanel] Error loading transcript', error);
                 this.updateStatus('TRANSCRIPT ERROR.');
                 this.appendMessage('system', `ERROR: COULD NOT LOAD TRANSCRIPT. ${error.message}`);
             }
         } else {
+            console.log('[SidePanel] Not a YouTube watch page', {
+                url: tab?.url,
+                isYouTube: tab?.url?.includes('youtube.com')
+            });
             this.updateStatus('IDLE. NO VIDEO DETECTED.');
         }
     }
@@ -218,7 +313,14 @@ class SidePanelApp {
         const includeTranscript = !this.transcriptSent && this.transcript;
         
         // DEBUG: Check what is being passed
-        console.log(`[SidePanel] Sending message. Transcript included: ${includeTranscript}, Transcript length: ${this.transcript ? this.transcript.length : 0}`);
+        console.log('[SidePanel] Sending message', {
+            includeTranscript,
+            transcriptSent: this.transcriptSent,
+            hasTranscript: !!this.transcript,
+            transcriptLength: this.transcript ? this.transcript.length : 0,
+            currentVideoId: this.currentVideoId,
+            chatHistoryLength: this.chatHistory.length
+        });
 
         try {
             const response = await this.openaiService.generateResponse(
@@ -246,7 +348,7 @@ class SidePanelApp {
 
     /**
      * Parse markdown to HTML while maintaining cryptic aesthetic
-     * Handles: bold, italic, code blocks, inline code, lists
+     * Handles: headers, bold, italic, code blocks, inline code, lists
      */
     parseMarkdown(text) {
         // Escape HTML to prevent XSS
@@ -280,28 +382,56 @@ class SidePanelApp {
             return placeholder;
         });
 
-        // Step 3: Process lists (before bold/italic to avoid conflicts)
+        // Step 3: Process headers (before lists to maintain hierarchy)
+        html = this.processHeaders(html);
+
+        // Step 4: Process lists (before bold/italic to avoid conflicts)
         html = this.processLists(html);
 
-        // Step 4: Process bold (**text** or __text__)
+        // Step 5: Process bold (**text** or __text__)
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
 
-        // Step 5: Process italic (*text* or _text_) - single asterisk/underscore
+        // Step 6: Process italic (*text* or _text_) - single asterisk/underscore
         html = html.replace(/([^*])\*([^*\n]+?)\*([^*])/g, '$1<em>$2</em>$3');
         html = html.replace(/([^_])_([^_\n]+?)_([^_])/g, '$1<em>$2</em>$3');
 
-        // Step 6: Restore inline code placeholders
+        // Step 7: Restore inline code placeholders
         inlineCodePlaceholders.forEach((replacement, index) => {
             html = html.replace(`__INLINECODE_${index}__`, replacement);
         });
 
-        // Step 7: Restore code block placeholders
+        // Step 8: Restore code block placeholders
         codeBlockPlaceholders.forEach((replacement, index) => {
             html = html.replace(`__CODEBLOCK_${index}__`, replacement);
         });
 
         return html;
+    }
+
+    /**
+     * Process markdown headers (# through ######)
+     */
+    processHeaders(html) {
+        const lines = html.split('\n');
+        const result = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            // Match headers: 1-6 # symbols followed by space and text
+            const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+            
+            if (headerMatch) {
+                const level = headerMatch[1].length; // Number of # symbols
+                const text = headerMatch[2].trim();
+                const tag = `h${Math.min(level, 6)}`; // Cap at h6
+                result.push(`<${tag} class="markdown-header markdown-header-${level}">${text}</${tag}>`);
+            } else {
+                result.push(line);
+            }
+        }
+
+        return result.join('\n');
     }
 
     /**
