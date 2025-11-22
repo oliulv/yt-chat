@@ -319,7 +319,12 @@ class SidePanelApp {
             hasTranscript: !!this.transcript,
             transcriptLength: this.transcript ? this.transcript.length : 0,
             currentVideoId: this.currentVideoId,
-            chatHistoryLength: this.chatHistory.length
+            chatHistoryLength: this.chatHistory.length,
+            chatHistoryRoles: this.chatHistory.map(m => m.role),
+            chatHistoryPreview: this.chatHistory.map(m => ({
+                role: m.role,
+                contentPreview: m.content.substring(0, 50) + '...'
+            }))
         });
 
         try {
@@ -329,12 +334,41 @@ class SidePanelApp {
             );
             
             this.appendMessage('bot', response);
-            this.chatHistory.push({ role: 'assistant', content: response });
             
-            // Mark transcript as sent after first message
+            // IMPORTANT: If we included transcript, we need to add the system message to chat history
+            // so it persists across all future messages
             if (includeTranscript) {
+                // Add the system message with transcript to chat history FIRST
+                const systemMessage = {
+                    role: 'system',
+                    content: `You are a helpful, cryptic, and precise assistant. 
+You are analyzing the following video transcript. 
+Answer the user's questions DIRECTLY based on this context. 
+Do NOT use phrases like "It seems like", "Based on the transcript", "The speaker says". Just state the facts.
+Keep your answers concise and technical.
+Style: Cyberpunk / Terminal / Cryptic.
+TRANSCRIPT START:
+${this.transcript.substring(0, 25000)} 
+TRANSCRIPT END.
+(Note: Transcript may be truncated)`
+                };
+                // Insert system message at the beginning of chat history
+                this.chatHistory.unshift(systemMessage);
+                console.log('[SidePanel] Added system message with transcript to chat history', {
+                    systemMessageLength: systemMessage.content.length,
+                    chatHistoryLength: this.chatHistory.length
+                });
                 this.transcriptSent = true;
             }
+            
+            // Add assistant response to chat history
+            this.chatHistory.push({ role: 'assistant', content: response });
+            
+            console.log('[SidePanel] Message sent successfully', {
+                chatHistoryLength: this.chatHistory.length,
+                chatHistoryRoles: this.chatHistory.map(m => m.role),
+                transcriptSent: this.transcriptSent
+            });
             
             // Save chat history if persistent mode is ON
             await this.saveChatHistory();
