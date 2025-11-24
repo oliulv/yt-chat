@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YT Cryptic Chat",
+  "name": "Pam",
   "version": "1.1",
-  "description": "A cryptic chatbot assistant for YouTube videos.",
+  "description": "A cryptic chatbot assistant for webpages and YouTube transcripts.",
   "permissions": ["sidePanel", "activeTab", "tabs", "scripting", "storage"],
   "host_permissions": [
     "<all_urls>",
@@ -20,7 +20,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "Open YT Chat"
+    "default_title": "Open Pam"
   },
   "content_scripts": [
     {

@@ -9,6 +9,7 @@ class SidePanelApp {
         this.openaiService = null;
         this.transcript = null;
         this.scrapedContent = null;
+        this.lastScrapedUrl = null;
         this.chatHistory = [];
         
         // Video and state tracking
@@ -109,7 +110,7 @@ class SidePanelApp {
         const settings = await chrome.storage.sync.get(['apiKey', 'model']);
         if (settings.apiKey) {
             this.openaiService = new OpenAIService(settings.apiKey, settings.model);
-            this.updateStatus('SYSTEM READY.');
+            this.updateStatus('PAM READY.');
             
             // Remove any persistent error messages about missing API key
             const errorMsgs = document.querySelectorAll('.message.system');
@@ -232,7 +233,7 @@ class SidePanelApp {
                 }
             } else if (!videoId) {
                 console.warn('[SidePanel] Could not extract video ID from URL', tab.url);
-                this.updateStatus('IDLE. NO VIDEO DETECTED.');
+                this.updateStatus('IDLE. NO PAGE CONTEXT DETECTED.');
                 return;
             }
 
@@ -254,7 +255,7 @@ class SidePanelApp {
                     transcriptSent: this.transcriptSent
                 });
                 
-                this.updateStatus('TRANSCRIPT LOADED. READY.');
+            this.updateStatus('READY. CONTEXT ACQUIRED.');
                 
                 // Show system message for new video context
                 // Show if this was a new video or if chat is empty (first load)
@@ -286,7 +287,7 @@ class SidePanelApp {
                 url: tab?.url,
                 isYouTube: tab?.url?.includes('youtube.com')
             });
-            this.updateStatus('IDLE. NO VIDEO DETECTED.');
+            await this.attemptAutoContext(tab);
         }
     }
 
@@ -301,6 +302,159 @@ class SidePanelApp {
         if (this._highlightCleanup && this._highlightCleanup.length) {
             this._highlightCleanup.forEach(fn => fn());
             this._highlightCleanup = [];
+        }
+    }
+
+    async attemptAutoContext(tab) {
+        if (!tab || !tab.url) {
+            this.updateStatus('IDLE. OPEN A PAGE TO CAPTURE CONTEXT.');
+            return;
+        }
+
+        const url = tab.url.toLowerCase();
+
+        // Ignore unsupported pages and YouTube (handled separately)
+        if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('about:')) {
+            this.updateStatus('IDLE. OPEN A PAGE TO CAPTURE CONTEXT.');
+            return;
+        }
+        if (url.includes('youtube.com/watch') || url.includes('youtube.com/')) {
+            return;
+        }
+
+        const content = await this.scrapeTabAndStore(tab);
+        if (content) {
+            this.updateStatus('READY. CONTEXT ACQUIRED.');
+        }
+    }
+
+    async findScrapeTab() {
+        let tab = null;
+        try {
+            console.log('[SidePanel] Starting tab query for scraping...');
+            const allTabs = await chrome.tabs.query({ currentWindow: true });
+            console.log('[SidePanel] All tabs in current window (raw):', allTabs.map(t => ({
+                id: t.id,
+                url: t.url || '(no URL)',
+                active: t.active,
+                title: t.title?.substring(0, 50) || '(no title)'
+            })));
+
+            const validTabs = allTabs.filter(t => {
+                if (!t.url) {
+                    console.log('[SidePanel] Skipping tab with no URL:', t.id);
+                    return false;
+                }
+                const url = t.url.toLowerCase();
+                const isInvalid = url.startsWith('chrome://') ||
+                                  url.startsWith('chrome-extension://') ||
+                                  url.startsWith('about:') ||
+                                  url.includes('youtube.com/watch');
+                if (isInvalid) {
+                    console.log('[SidePanel] Skipping invalid URL tab:', { id: t.id, url: t.url });
+                    return false;
+                }
+                return true;
+            });
+
+            console.log('[SidePanel] Valid tabs after filtering:', validTabs.map(t => ({
+                id: t.id,
+                url: t.url,
+                title: t.title
+            })));
+
+            tab = validTabs.find(t => t.active) || validTabs[0];
+
+            console.log('[SidePanel] Selected tab:', tab ? {
+                id: tab.id,
+                url: tab.url,
+                title: tab.title,
+                wasActive: tab.active
+            } : 'null');
+
+            if (!tab) {
+                console.log('[SidePanel] No valid tab in current window, trying all windows...');
+                try {
+                    const allWindowTabs = await chrome.tabs.query({});
+                    console.log('[SidePanel] All tabs across all windows:', allWindowTabs.length);
+
+                    const validWindowTabs = allWindowTabs.filter(t => {
+                        if (!t.url) return false;
+                        const url = t.url.toLowerCase();
+                        return !url.startsWith('chrome://') &&
+                               !url.startsWith('chrome-extension://') &&
+                               !url.startsWith('about:') &&
+                               !url.includes('youtube.com/watch');
+                    });
+
+                    console.log('[SidePanel] Valid tabs across all windows:', validWindowTabs.length);
+                    tab = validWindowTabs.find(t => t.active) || validWindowTabs[0];
+
+                    if (tab) {
+                        console.log('[SidePanel] Found tab from all windows:', {
+                            id: tab.id,
+                            url: tab.url,
+                            title: tab.title
+                        });
+                    }
+                } catch (err) {
+                    console.error('[SidePanel] Error querying all windows:', err);
+                }
+            }
+        } catch (error) {
+            console.error('[SidePanel] Error querying tabs:', error);
+        }
+
+        if ((!tab || !tab.url) && this.currentTab && this.currentTab.url) {
+            const fallbackUrl = this.currentTab.url.toLowerCase();
+            const isInvalid = fallbackUrl.startsWith('chrome://') ||
+                              fallbackUrl.startsWith('chrome-extension://') ||
+                              fallbackUrl.startsWith('about:') ||
+                              fallbackUrl.includes('youtube.com/watch');
+            if (!isInvalid) {
+                tab = this.currentTab;
+                console.log('[SidePanel] Using stored currentTab as fallback:', {
+                    id: tab.id,
+                    url: tab.url,
+                    title: tab.title
+                });
+            }
+        }
+
+        return tab && tab.url ? tab : null;
+    }
+
+    async scrapeTabAndStore(tab, { force = false } = {}) {
+        const url = tab.url.toLowerCase();
+
+        // Avoid re-scraping same page unless forced
+        if (!force && this.scrapedContent && this.lastScrapedUrl === tab.url) {
+            this.updateStatus('READY. CONTEXT ACQUIRED.');
+            return this.scrapedContent;
+        }
+
+        if (url.includes('youtube.com/watch') || url.includes('youtube.com/')) {
+            return null;
+        }
+
+        if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('about:')) {
+            return null;
+        }
+
+        this.updateStatus('SCRAPING PAGE...');
+        try {
+            const content = await this.scraperService.scrapePage(tab.id, tab.url);
+            this.scrapedContent = content;
+            this.lastScrapedUrl = tab.url;
+            this.scrapedContentSent = false;
+            this.appendMessage('system', `CONTEXT ACQUIRED: ${tab.title ? tab.title.toUpperCase() : 'PAGE'}`);
+            this.updateStatus('READY. CONTEXT ACQUIRED.');
+            return content;
+        } catch (error) {
+            console.error('[SidePanel] Scraping error:', error);
+            this.appendMessage('system', `SCRAPING FAILED: ${error.message}`);
+            this.updateStatus('ERROR.');
+            return null;
         }
     }
 
@@ -569,6 +723,17 @@ class SidePanelApp {
                 this.userInput.classList.remove('has-context-command');
                 this.cleanupHighlightOverlay();
                 return;
+            }
+        }
+
+        // Auto-scrape current non-YouTube page if we don't already have it
+        if (!contextMatch) {
+            const tabForScrape = await this.findScrapeTab();
+            if (tabForScrape && tabForScrape.url !== this.lastScrapedUrl) {
+                const autoContent = await this.scrapeTabAndStore(tabForScrape);
+                if (autoContent) {
+                    scrapedContentToUse = autoContent;
+                }
             }
         }
 
@@ -947,7 +1112,7 @@ TRANSCRIPT END.
 
     resetChatForNewVideo() {
         this.clearChatHistory();
-        this.appendMessage('system', 'SYSTEM READY. WAITING FOR VIDEO CONTEXT...');
+        this.appendMessage('system', 'PAM READY. WAITING FOR CONTEXT...');
     }
 }
 
