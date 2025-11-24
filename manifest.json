@@ -3,8 +3,9 @@
   "name": "YT Cryptic Chat",
   "version": "1.1",
   "description": "A cryptic chatbot assistant for YouTube videos.",
-  "permissions": ["sidePanel", "activeTab", "scripting", "storage"],
+  "permissions": ["sidePanel", "activeTab", "tabs", "scripting", "storage"],
   "host_permissions": [
+    "<all_urls>",
     "https://www.youtube.com/*",
     "https://api.openai.com/*"
   ],
@@ -26,6 +27,12 @@
         "matches": ["https://www.youtube.com/*"],
         "js": ["content.js"],
         "run_at": "document_end"
+    },
+    {
+        "matches": ["<all_urls>"],
+        "js": ["content-scraper.js"],
+        "run_at": "document_idle",
+        "exclude_matches": ["https://www.youtube.com/*"]
     }
   ],
   "icons": {

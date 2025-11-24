@@ -1,17 +1,23 @@
 import { TranscriptService } from './lib/transcript.js';
 import { OpenAIService } from './lib/openai.js';
+import { ScraperService } from './lib/scraper.js';
 
 class SidePanelApp {
     constructor() {
         this.transcriptService = new TranscriptService();
+        this.scraperService = new ScraperService();
         this.openaiService = null;
         this.transcript = null;
+        this.scrapedContent = null;
         this.chatHistory = [];
         
         // Video and state tracking
         this.currentVideoId = null;
+        this.currentTab = null;
         this.transcriptSent = false;
+        this.scrapedContentSent = false;
         this.persistentMode = false;
+        this._highlightCleanup = [];
         
         // UI Elements
         this.statusText = document.getElementById('status-text');
@@ -30,6 +36,7 @@ class SidePanelApp {
         await this.loadPersistentMode();
         await this.loadChatHistory();
         this.checkCurrentTab();
+        this.highlightContextCommand(); // Initial highlight check
 
         // Listen for tab updates to reload context
         chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -82,7 +89,12 @@ class SidePanelApp {
         this.userInput.addEventListener('input', () => {
             this.userInput.style.height = 'auto';
             this.userInput.style.height = Math.min(this.userInput.scrollHeight, 72) + 'px'; // 72px is roughly 3 lines
+            this.highlightContextCommand();
         });
+        
+        // Highlight /context command on focus/blur
+        this.userInput.addEventListener('focus', () => this.highlightContextCommand());
+        this.userInput.addEventListener('blur', () => this.highlightContextCommand());
         
         this.settingsBtn.addEventListener('click', () => {
             chrome.runtime.openOptionsPage();
@@ -128,7 +140,7 @@ class SidePanelApp {
             await this.loadChatHistory();
         } else {
             // Clear chat history from storage
-            await chrome.storage.local.remove(['chatHistory', 'currentVideoId', 'transcriptSent']);
+            await chrome.storage.local.remove(['chatHistory', 'currentVideoId', 'transcriptSent', 'scrapedContentSent']);
         }
     }
 
@@ -152,6 +164,11 @@ class SidePanelApp {
 
     async checkCurrentTab() {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        // Store current tab for use in /context command
+        if (tab) {
+            this.currentTab = tab;
+        }
         
         console.log('[SidePanel] checkCurrentTab called', {
             url: tab?.url,
@@ -180,28 +197,18 @@ class SidePanelApp {
                     persistentMode: this.persistentMode
                 });
                 
-                // Video changed
-                if (!this.persistentMode) {
-                    // Default mode: Reset chat for new video
-                    console.log('[SidePanel] Resetting chat for new video (default mode)');
-                    this.resetChatForNewVideo();
-                } else {
-                    // Persistent mode: Keep chat history, just update video ID
-                    // Load chat history from storage if sidepanel was closed
-                    // (But don't overwrite if we already have it in memory)
-                    if (this.chatHistory.length === 0) {
-                        console.log('[SidePanel] Loading chat history from storage (persistent mode)');
-                        await this.loadChatHistory();
-                    } else {
-                        console.log('[SidePanel] Keeping existing chat history (persistent mode)');
-                    }
+                // Keep chat history across mediums; only refresh transcript tracking
+                if (this.persistentMode && this.chatHistory.length === 0) {
+                    console.log('[SidePanel] Loading chat history from storage (persistent mode)');
+                    await this.loadChatHistory();
                 }
                 
                 const previousVideoId = this.currentVideoId;
                 this.currentVideoId = videoId;
+                this.transcript = null; // Force fetch of new transcript
                 this.transcriptSent = false; // New video, need to send transcript
                 
-                console.log('[SidePanel] Video ID updated', {
+                console.log('[SidePanel] Video ID updated without chat reset', {
                     previousVideoId,
                     newVideoId: this.currentVideoId,
                     transcriptSent: this.transcriptSent
@@ -287,8 +294,88 @@ class SidePanelApp {
         this.statusText.textContent = text;
     }
 
+    cleanupHighlightOverlay() {
+        const overlay = document.getElementById('context-highlight-overlay');
+        if (overlay) overlay.remove();
+        
+        if (this._highlightCleanup && this._highlightCleanup.length) {
+            this._highlightCleanup.forEach(fn => fn());
+            this._highlightCleanup = [];
+        }
+    }
+
+    highlightContextCommand() {
+        const text = this.userInput.value;
+        const contextRegex = /\/context\b/i;
+        
+        this.cleanupHighlightOverlay();
+        this.userInput.classList.remove('has-context-command');
+        
+        if (contextRegex.test(text)) {
+            this.userInput.classList.add('has-context-command');
+            
+            const styles = window.getComputedStyle(this.userInput);
+            const escapeHtml = (str) => str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            // Build overlay that mirrors textarea layout so highlight stays inside bounds
+            const overlay = document.createElement('div');
+            overlay.id = 'context-highlight-overlay';
+            overlay.className = 'context-overlay';
+            overlay.style.position = 'absolute';
+            overlay.style.pointerEvents = 'none';
+            overlay.style.whiteSpace = 'pre-wrap';
+            overlay.style.wordWrap = 'break-word';
+            overlay.style.font = styles.font;
+            overlay.style.fontFamily = styles.fontFamily;
+            overlay.style.fontSize = styles.fontSize;
+            overlay.style.fontWeight = styles.fontWeight;
+            overlay.style.fontStyle = styles.fontStyle;
+            overlay.style.letterSpacing = styles.letterSpacing;
+            overlay.style.lineHeight = styles.lineHeight;
+            overlay.style.padding = styles.padding;
+            overlay.style.borderRadius = styles.borderRadius;
+            overlay.style.left = this.userInput.offsetLeft + 'px';
+            overlay.style.top = this.userInput.offsetTop + 'px';
+            overlay.style.width = this.userInput.offsetWidth + 'px';
+            overlay.style.height = this.userInput.offsetHeight + 'px';
+            overlay.style.overflow = 'hidden';
+            overlay.style.zIndex = '1';
+            overlay.style.boxSizing = 'border-box';
+
+            const highlighted = escapeHtml(text).replace(/(\/context\b)/gi, '<mark class="context-highlight">$1</mark>');
+            overlay.innerHTML = highlighted || '&nbsp;';
+
+            const parent = this.userInput.parentElement || document.body;
+            if (parent.style.position === '') {
+                parent.style.position = 'relative';
+            }
+            parent.appendChild(overlay);
+
+            const syncOverlay = () => {
+                overlay.style.width = this.userInput.offsetWidth + 'px';
+                overlay.style.height = this.userInput.offsetHeight + 'px';
+                overlay.scrollTop = this.userInput.scrollTop;
+            };
+            syncOverlay();
+
+            this._highlightCleanup.push(() => {
+                overlay.remove();
+                this.userInput.removeEventListener('scroll', syncOverlay);
+                window.removeEventListener('resize', syncOverlay);
+                this.userInput.removeEventListener('input', syncOverlay);
+            });
+
+            this.userInput.addEventListener('scroll', syncOverlay);
+            window.addEventListener('resize', syncOverlay);
+            this.userInput.addEventListener('input', syncOverlay);
+        }
+    }
+
     async handleSendMessage() {
-        const text = this.userInput.value.trim();
+        let text = this.userInput.value.trim();
         if (!text) return;
 
         if (!this.openaiService) {
@@ -299,18 +386,215 @@ class SidePanelApp {
             }
         }
 
+        // Check for /context command anywhere in the message
+        const contextMatch = text.match(/\/context\b/i);
+        let userQuestion = text;
+        let scrapedContentToUse = null;
+        let shouldScrapeOnly = false;
+
+        if (contextMatch) {
+            // Extract the part after /context
+            const contextIndex = contextMatch.index || 0;
+            const matchedCommand = contextMatch[0];
+            const afterContext = text.substring(contextIndex + matchedCommand.length).trim();
+            
+            // If /context is at the start and nothing after, just scrape
+            if (contextIndex === 0 && !afterContext) {
+                shouldScrapeOnly = true;
+                userQuestion = null;
+            } else {
+                // Remove /context from the message, keep the rest
+                userQuestion = text.replace(/\/context\b\s*/gi, '').trim();
+                if (!userQuestion) {
+                    shouldScrapeOnly = true;
+                    userQuestion = null;
+                }
+            }
+
+            // Always get fresh tab info when scraping
+            let tab = null;
+            try {
+                console.log('[SidePanel] Starting tab query for /context command...');
+                
+                // Strategy 1: Get ALL tabs in current window and filter out sidepanel/chrome tabs
+                const allTabs = await chrome.tabs.query({ currentWindow: true });
+                console.log('[SidePanel] All tabs in current window (raw):', allTabs.map(t => ({
+                    id: t.id,
+                    url: t.url || '(no URL)',
+                    active: t.active,
+                    title: t.title?.substring(0, 50) || '(no title)'
+                })));
+                
+                // Filter to only tabs with valid URLs (exclude sidepanel tabs which have no URL)
+                const validTabs = allTabs.filter(t => {
+                    if (!t.url) {
+                        console.log('[SidePanel] Skipping tab with no URL:', t.id);
+                        return false;
+                    }
+                    const url = t.url.toLowerCase();
+                    const isInvalid = url.startsWith('chrome://') || 
+                                     url.startsWith('chrome-extension://') ||
+                                     url.startsWith('about:') ||
+                                     url.includes('youtube.com/watch');
+                    if (isInvalid) {
+                        console.log('[SidePanel] Skipping invalid URL tab:', { id: t.id, url: t.url });
+                        return false;
+                    }
+                    return true;
+                });
+                
+                console.log('[SidePanel] Valid tabs after filtering:', validTabs.map(t => ({
+                    id: t.id,
+                    url: t.url,
+                    title: t.title
+                })));
+                
+                // Prefer the active tab if it's valid, otherwise use the first valid tab
+                tab = validTabs.find(t => t.active) || validTabs[0];
+                
+                console.log('[SidePanel] Selected tab:', tab ? {
+                    id: tab.id,
+                    url: tab.url,
+                    title: tab.title,
+                    wasActive: tab.active
+                } : 'null');
+                
+                // Strategy 2: If still no tab, try querying all windows
+                if (!tab) {
+                    console.log('[SidePanel] No valid tab in current window, trying all windows...');
+                    try {
+                        const allWindowTabs = await chrome.tabs.query({});
+                        console.log('[SidePanel] All tabs across all windows:', allWindowTabs.length);
+                        
+                        const validWindowTabs = allWindowTabs.filter(t => {
+                            if (!t.url) return false;
+                            const url = t.url.toLowerCase();
+                            return !url.startsWith('chrome://') && 
+                                   !url.startsWith('chrome-extension://') &&
+                                   !url.startsWith('about:') &&
+                                   !url.includes('youtube.com/watch');
+                        });
+                        
+                        console.log('[SidePanel] Valid tabs across all windows:', validWindowTabs.length);
+                        
+                        // Prefer active tab, otherwise first valid
+                        tab = validWindowTabs.find(t => t.active) || validWindowTabs[0];
+                        
+                        if (tab) {
+                            console.log('[SidePanel] Found tab from all windows:', {
+                                id: tab.id,
+                                url: tab.url,
+                                title: tab.title
+                            });
+                        }
+                    } catch (err) {
+                        console.error('[SidePanel] Error querying all windows:', err);
+                    }
+                }
+            } catch (error) {
+                console.error('[SidePanel] Error querying tabs:', error);
+            }
+            
+            // Fallback to last known active tab if queries returned nothing (permissions or timing issues)
+            if ((!tab || !tab.url) && this.currentTab && this.currentTab.url) {
+                const fallbackUrl = this.currentTab.url.toLowerCase();
+                const isInvalid = fallbackUrl.startsWith('chrome://') ||
+                                  fallbackUrl.startsWith('chrome-extension://') ||
+                                  fallbackUrl.startsWith('about:');
+                if (!isInvalid) {
+                    tab = this.currentTab;
+                    console.log('[SidePanel] Using stored currentTab as fallback:', {
+                        id: tab.id,
+                        url: tab.url,
+                        title: tab.title
+                    });
+                }
+            }
+
+            if (!tab || !tab.url) {
+                console.error('[SidePanel] No valid tab found after all attempts', {
+                    tab: tab,
+                    hasUrl: tab?.url,
+                    url: tab?.url
+                });
+                this.appendMessage('system', 'ERROR: NO ACTIVE TAB FOUND. ENSURE A WEBPAGE IS OPEN.');
+                return;
+            }
+            
+            console.log('[SidePanel] Using tab for scraping:', {
+                id: tab.id,
+                url: tab.url,
+                title: tab.title
+            });
+
+            // Check if it's a YouTube page (should not scrape)
+            const url = tab.url.toLowerCase();
+            if (url.includes('youtube.com/watch') || url.includes('youtube.com/')) {
+                this.appendMessage('system', 'ERROR: /context NOT AVAILABLE FOR YOUTUBE PAGES. USE VIDEO TRANSCRIPTS INSTEAD.');
+                return;
+            }
+
+            // Check if it's a chrome:// or chrome-extension:// page
+            if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('about:')) {
+                this.appendMessage('system', 'ERROR: CANNOT SCRAPE CHROME INTERNAL PAGES.');
+                return;
+            }
+
+            // Scrape the page
+            this.updateStatus('SCRAPING PAGE...');
+            try {
+                scrapedContentToUse = await this.scraperService.scrapePage(tab.id, tab.url);
+                this.scrapedContent = scrapedContentToUse;
+                // Reset scrapedContentSent so new content gets added to context
+                this.scrapedContentSent = false;
+                this.appendMessage('system', `CONTEXT ACQUIRED: ${tab.title ? tab.title.toUpperCase() : 'PAGE'}`);
+                
+                // If just scraping (no question), we're done
+                if (shouldScrapeOnly) {
+                    this.updateStatus('CONTEXT READY. ASK QUESTIONS.');
+                    // Clear input since we're not sending a message
+                    this.userInput.value = '';
+                    this.userInput.style.height = 'auto';
+                    this.userInput.classList.remove('has-context-command');
+                    this.cleanupHighlightOverlay();
+                    return;
+                }
+            } catch (error) {
+                console.error('[SidePanel] Scraping error:', error);
+                this.appendMessage('system', `SCRAPING FAILED: ${error.message}`);
+                this.updateStatus('ERROR.');
+                // Clear input on error
+                this.userInput.value = '';
+                this.userInput.style.height = 'auto';
+                this.userInput.classList.remove('has-context-command');
+                this.cleanupHighlightOverlay();
+                return;
+            }
+        }
+
         // Clear input and reset height
         this.userInput.value = '';
         this.userInput.style.height = 'auto';
+        this.userInput.classList.remove('has-context-command');
+        this.cleanupHighlightOverlay();
         
-        // Add user message
-        this.appendMessage('user', text);
-        this.chatHistory.push({ role: 'user', content: text });
+        // If we scraped but have no question, we already returned above
+        if (!userQuestion) {
+            return;
+        }
+        
+        // Add user message (use the question, not the command)
+        this.appendMessage('user', userQuestion);
+        this.chatHistory.push({ role: 'user', content: userQuestion });
 
         this.updateStatus('PROCESSING...');
 
         // Determine if we should include transcript (only once per video)
         const includeTranscript = !this.transcriptSent && this.transcript;
+        
+        // Determine if we should include scraped content (use newly scraped or existing)
+        const contentToUse = scrapedContentToUse || this.scrapedContent;
+        const includeScrapedContent = contentToUse && !this.scrapedContentSent;
         
         // DEBUG: Check what is being passed
         console.log('[SidePanel] Sending message', {
@@ -328,16 +612,51 @@ class SidePanelApp {
         });
 
         try {
+            // Determine context type and content
+            let contextContent = null;
+            let contextType = null;
+            
+            if (includeScrapedContent) {
+                contextContent = contentToUse;
+                contextType = 'webpage';
+            } else if (includeTranscript) {
+                contextContent = this.transcript;
+                contextType = 'transcript';
+            }
+
             const response = await this.openaiService.generateResponse(
                 this.chatHistory, 
-                includeTranscript ? this.transcript : null
+                contextContent,
+                contextType
             );
             
             this.appendMessage('bot', response);
             
-            // IMPORTANT: If we included transcript, we need to add the system message to chat history
+            // IMPORTANT: If we included context, we need to add the system message to chat history
             // so it persists across all future messages
-            if (includeTranscript) {
+            if (includeScrapedContent) {
+                // Add the system message with scraped webpage content to chat history FIRST
+                const systemMessage = {
+                    role: 'system',
+                    content: `You are a helpful, cryptic, and precise assistant. 
+You are analyzing the following webpage/article content. 
+Answer the user's questions DIRECTLY based on this context. 
+Do NOT use phrases like "It seems like", "Based on the article", "The article says". Just state the facts.
+Keep your answers concise and technical.
+Style: Cyberpunk / Terminal / Cryptic.
+WEBPAGE CONTENT START:
+${contentToUse.substring(0, 25000)} 
+WEBPAGE CONTENT END.
+(Note: webpage/article content may be truncated)`
+                };
+                // Insert system message at the beginning of chat history
+                this.chatHistory.unshift(systemMessage);
+                console.log('[SidePanel] Added system message with scraped content to chat history', {
+                    systemMessageLength: systemMessage.content.length,
+                    chatHistoryLength: this.chatHistory.length
+                });
+                this.scrapedContentSent = true;
+            } else if (includeTranscript) {
                 // Add the system message with transcript to chat history FIRST
                 const systemMessage = {
                     role: 'system',
@@ -577,14 +896,15 @@ TRANSCRIPT END.
             await chrome.storage.local.set({ 
                 chatHistory: this.chatHistory,
                 currentVideoId: this.currentVideoId,
-                transcriptSent: this.transcriptSent
+                transcriptSent: this.transcriptSent,
+                scrapedContentSent: this.scrapedContentSent
             });
         }
     }
 
     async loadChatHistory() {
         if (this.persistentMode) {
-            const stored = await chrome.storage.local.get(['chatHistory', 'currentVideoId', 'transcriptSent']);
+            const stored = await chrome.storage.local.get(['chatHistory', 'currentVideoId', 'transcriptSent', 'scrapedContentSent']);
             if (stored.chatHistory && Array.isArray(stored.chatHistory) && stored.chatHistory.length > 0) {
                 this.chatHistory = stored.chatHistory;
                 // Restore chat UI - clear initial system message
@@ -609,6 +929,9 @@ TRANSCRIPT END.
                 } else {
                     this.transcriptSent = false;
                 }
+                
+                // Restore scraped content sent state
+                this.scrapedContentSent = stored.scrapedContentSent !== undefined ? stored.scrapedContentSent : false;
             }
         }
     }
@@ -617,6 +940,8 @@ TRANSCRIPT END.
         this.chatHistory = [];
         this.chatContainer.innerHTML = '';
         this.transcriptSent = false;
+        this.scrapedContentSent = false;
+        this.scrapedContent = null;
     }
 
     resetChatForNewVideo() {

@@ -103,6 +103,7 @@ body {
     gap: 8px;
     background: var(--bg-color);
     align-items: center; /* Center vertical alignment */
+    position: relative;
 }
 
 .input-area .prompt {
@@ -114,6 +115,8 @@ body {
 
 textarea {
     flex: 1;
+    position: relative;
+    z-index: 2;
     background: transparent;
     border: 1px solid var(--border-color);
     border-radius: 4px;
@@ -132,6 +135,25 @@ textarea {
 
 textarea:focus {
     border-color: var(--accent-color);
+}
+
+textarea.has-context-command {
+    border-color: rgba(230, 230, 230, 0.7);
+    box-shadow: 0 0 0 1px rgba(230, 230, 230, 0.1);
+}
+
+.context-overlay {
+    color: transparent;
+    background: transparent;
+    pointer-events: none;
+    mix-blend-mode: normal;
+}
+
+.context-overlay .context-highlight {
+    background: rgba(110, 118, 129, 0.25);
+    border: 1px solid rgba(110, 118, 129, 0.35);
+    border-radius: 3px;
+    padding: 0 2px;
 }
 
 button {
