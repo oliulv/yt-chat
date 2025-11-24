@@ -27,9 +27,19 @@ A minimalist, terminal-style chatbot assistant for YouTube that loads video tran
 
 ## Usage
 
-1.  Open any YouTube video.
-2.  Open the Side Panel (if not already open).
-3.  The extension will open the YouTube transcript drawer in the background, scrape it, and hide it.
-4.  Wait for the status to show `CONTEXT ACQUIRED:`
-5.  Type your question in the input field and press `Enter` or click `EXEC`.¨
-6. (you might have to refresh the page if it doesn't work first try)
+### YouTube transcripts
+1. Open any YouTube video.
+2. Open the Side Panel (if not already open).
+3. The extension opens the transcript drawer in the background, scrapes it, and hides it.
+4. Wait for the status to show `CONTEXT ACQUIRED: ...`.
+5. Ask questions and press `Enter` or click `EXEC`.
+
+### Webpage /context scraping (case-insensitive)
+- Type `/context` anywhere in the input to scrape the currently active tab (non-YouTube). The command is case-insensitive: `/context`, `/Context`, `/CONTEXT` all work.
+- You can optionally add a question after it, e.g. `/context what is the main idea?`
+- If you only type `/context`, it scrapes and loads the page context, then waits for your next question.
+- Scraped page content or transcripts are fed into the same chat so you can deep-dive across tabs and mediums without losing context. Switching between articles and YouTube videos will keep the ongoing chat thread; closing the side panel still resets history unless you turn on PERSIST.
+
+### Persistence toggle
+- `[PERSIST: OFF]` by default. Turn it on in the status bar if you want chat history to survive side panel closes.
+- With persist on, chat history and context (transcript or scraped page) are reused across tabs and mediums.
