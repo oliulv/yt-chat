@@ -711,15 +711,16 @@ TRANSCRIPT END.
             return div.innerHTML;
         };
 
-        // Use placeholders to protect code blocks from other markdown processing
+        // Use placeholders to protect code blocks from other markdown processing.
+        // Placeholders avoid underscores so list/italic regexes don't break them.
         const codeBlockPlaceholders = [];
         let placeholderIndex = 0;
 
         let html = escapeHtml(text);
 
         // Step 1: Replace code blocks with placeholders (must be first)
-        html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
-            const placeholder = `__CODEBLOCK_${placeholderIndex}__`;
+        html = html.replace(/```(?:[a-zA-Z0-9]+\n)?([\s\S]*?)```/g, (match, code) => {
+            const placeholder = `<<CODEBLOCK${placeholderIndex}>>`;
             codeBlockPlaceholders[placeholderIndex] = `<pre class="code-block"><code>${escapeHtml(code.trim())}</code></pre>`;
             placeholderIndex++;
             return placeholder;
@@ -729,7 +730,7 @@ TRANSCRIPT END.
         const inlineCodePlaceholders = [];
         let inlineIndex = 0;
         html = html.replace(/`([^`\n]+)`/g, (match, code) => {
-            const placeholder = `__INLINECODE_${inlineIndex}__`;
+            const placeholder = `<<INLINECODE${inlineIndex}>>`;
             inlineCodePlaceholders[inlineIndex] = `<code class="inline-code">${escapeHtml(code)}</code>`;
             inlineIndex++;
             return placeholder;
@@ -751,12 +752,12 @@ TRANSCRIPT END.
 
         // Step 7: Restore inline code placeholders
         inlineCodePlaceholders.forEach((replacement, index) => {
-            html = html.replace(`__INLINECODE_${index}__`, replacement);
+            html = html.replace(`<<INLINECODE${index}>>`, replacement);
         });
 
         // Step 8: Restore code block placeholders
         codeBlockPlaceholders.forEach((replacement, index) => {
-            html = html.replace(`__CODEBLOCK_${index}__`, replacement);
+            html = html.replace(`<<CODEBLOCK${index}>>`, replacement);
         });
 
         return html;
