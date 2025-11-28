@@ -22,6 +22,15 @@
   "action": {
     "default_title": "Open Pam"
   },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+P",
+        "mac": "Alt+P"
+      },
+      "description": "Open Pam side panel"
+    }
+  },
   "content_scripts": [
     {
         "matches": ["https://www.youtube.com/*"],
