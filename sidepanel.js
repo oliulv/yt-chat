@@ -807,7 +807,8 @@ class SidePanelApp {
 You are analyzing the following webpage/article content. 
 Answer the user's questions DIRECTLY based on this context. 
 Do NOT use phrases like "It seems like", "Based on the article", "The article says". Just state the facts.
-Keep your answers concise and technical.
+Keep answers concise but give enough context to be helpful (think 2-4 sentences). 
+When the user asks "what" or "why", include a tight definition plus a quick clarifying detail or example.
 Style: Cyberpunk / Terminal / Cryptic.
 WEBPAGE CONTENT START:
 ${contentToUse.substring(0, 25000)} 
@@ -829,7 +830,8 @@ WEBPAGE CONTENT END.
 You are analyzing the following video transcript. 
 Answer the user's questions DIRECTLY based on this context. 
 Do NOT use phrases like "It seems like", "Based on the transcript", "The speaker says". Just state the facts.
-Keep your answers concise and technical.
+Keep answers concise but give enough context to be helpful (think 2-4 sentences). 
+When the user asks "what" or "why", include a tight definition plus a quick clarifying detail or example.
 Style: Cyberpunk / Terminal / Cryptic.
 TRANSCRIPT START:
 ${this.transcript.substring(0, 25000)} 
