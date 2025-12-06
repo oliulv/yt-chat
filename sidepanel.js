@@ -886,7 +886,8 @@ TRANSCRIPT END.
         // Step 1: Replace code blocks with placeholders (must be first)
         html = html.replace(/```(?:[a-zA-Z0-9]+\n)?([\s\S]*?)```/g, (match, code) => {
             const placeholder = `<<CODEBLOCK${placeholderIndex}>>`;
-            codeBlockPlaceholders[placeholderIndex] = `<pre class="code-block"><code>${escapeHtml(code.trim())}</code></pre>`;
+            const sanitizedCode = code.trim(); // Already escaped once above
+            codeBlockPlaceholders[placeholderIndex] = `<pre class="code-block"><code>${sanitizedCode}</code></pre>`;
             placeholderIndex++;
             return placeholder;
         });
@@ -896,7 +897,8 @@ TRANSCRIPT END.
         let inlineIndex = 0;
         html = html.replace(/`([^`\n]+)`/g, (match, code) => {
             const placeholder = `<<INLINECODE${inlineIndex}>>`;
-            inlineCodePlaceholders[inlineIndex] = `<code class="inline-code">${escapeHtml(code)}</code>`;
+            const sanitizedCode = code; // Already escaped once above
+            inlineCodePlaceholders[inlineIndex] = `<code class="inline-code">${sanitizedCode}</code>`;
             inlineIndex++;
             return placeholder;
         });
