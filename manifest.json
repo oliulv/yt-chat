@@ -35,12 +35,12 @@
     {
         "matches": ["https://www.youtube.com/*"],
         "js": ["content.js"],
-        "run_at": "document_end"
+        "run_at": "document_start"
     },
     {
         "matches": ["<all_urls>"],
         "js": ["content-scraper.js"],
-        "run_at": "document_idle",
+        "run_at": "document_start",
         "exclude_matches": ["https://www.youtube.com/*"]
     }
   ],

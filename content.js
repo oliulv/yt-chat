@@ -5,6 +5,58 @@
 // Simple logger to help debug injection issues
 console.log('[ContentScript] Loaded for', window.location.href);
 
+let pamCaptureEnabled = false;
+
+function isEditableElement(element) {
+    if (!element) return false;
+    const tagName = (element.tagName || '').toLowerCase();
+    if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return true;
+    if (element.isContentEditable) return true;
+    const role = (element.getAttribute && element.getAttribute('role')) || '';
+    return role.toLowerCase() === 'textbox';
+}
+
+function setPamCaptureEnabled(enabled) {
+    pamCaptureEnabled = enabled === true;
+    if (pamCaptureEnabled) {
+        try {
+            const active = document.activeElement;
+            if (active && active !== document.body && typeof active.blur === 'function') {
+                active.blur();
+            }
+        } catch {
+        }
+    }
+}
+
+function shouldCaptureKeyEvent(event) {
+    if (!pamCaptureEnabled) return false;
+    if (event.defaultPrevented) return false;
+    if (event.metaKey || event.ctrlKey || event.altKey) return false;
+    if (event.isComposing) return false;
+    if (isEditableElement(document.activeElement)) return false;
+
+    const key = event.key;
+    if (!key) return false;
+    if (key === 'Enter' || key === 'Backspace' || key === 'Delete') return true;
+    return key.length === 1;
+}
+
+document.addEventListener(
+    'keydown',
+    (event) => {
+        if (!shouldCaptureKeyEvent(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+
+        chrome.runtime.sendMessage(
+            { type: 'PAM_CAPTURE_KEY', key: event.key, shiftKey: event.shiftKey },
+            () => void chrome.runtime.lastError
+        );
+    },
+    { capture: true }
+);
+
 function getVideoId() {
     const url = new URL(window.location.href);
     return url.searchParams.get('v');
@@ -158,6 +210,12 @@ async function getTranscriptFromDom() {
 
 // Listen for transcript requests from the side panel
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'PAM_SET_CAPTURE') {
+        setPamCaptureEnabled(msg.enabled);
+        sendResponse({ ok: true });
+        return false;
+    }
+
     // Handle ping to check if content script is loaded
     if (msg.type === 'CRYPTIC_PING') {
         sendResponse({ ok: true });

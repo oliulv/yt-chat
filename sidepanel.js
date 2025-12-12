@@ -19,6 +19,9 @@ class SidePanelApp {
         this.scrapedContentSent = false;
         this.persistentMode = false;
         this._highlightCleanup = [];
+        this._focusRetryIntervalId = null;
+        this._announcedPanelOpen = null;
+        this._virtualCaretEl = null;
         
         // UI Elements
         this.statusText = document.getElementById('status-text');
@@ -33,6 +36,22 @@ class SidePanelApp {
 
     async init() {
         this.setupEventListeners();
+        this.announcePanelState(true);
+        window.addEventListener('pagehide', () => this.announcePanelState(false));
+        window.addEventListener('beforeunload', () => this.announcePanelState(false));
+
+        this.requestInputFocus({ aggressive: true });
+        this.updateVirtualInputUI();
+        document.addEventListener('visibilitychange', () => {
+            this.announcePanelState(!document.hidden);
+            if (!document.hidden) {
+                this.requestInputFocus({ aggressive: true });
+            }
+            this.updateVirtualInputUI();
+        });
+        window.addEventListener('focus', () => this.updateVirtualInputUI());
+        window.addEventListener('blur', () => this.updateVirtualInputUI());
+
         await this.loadSettings();
         await this.loadPersistentMode();
         await this.loadChatHistory();
@@ -73,6 +92,206 @@ class SidePanelApp {
                 }
             }
         });
+
+    }
+
+    ensureVirtualCaret() {
+        if (!this.userInput) return null;
+        if (this._virtualCaretEl) return this._virtualCaretEl;
+
+        const caret = document.createElement('div');
+        caret.id = 'virtual-caret';
+        caret.setAttribute('aria-hidden', 'true');
+
+        const parent = this.userInput.parentElement || document.body;
+        parent.appendChild(caret);
+
+        this._virtualCaretEl = caret;
+        return caret;
+    }
+
+    getCaretCoordinates(textarea, position) {
+        const style = window.getComputedStyle(textarea);
+
+        const mirror = document.createElement('div');
+        mirror.style.position = 'absolute';
+        mirror.style.visibility = 'hidden';
+        mirror.style.whiteSpace = 'pre-wrap';
+        mirror.style.wordWrap = 'break-word';
+        mirror.style.overflow = 'hidden';
+        mirror.style.top = '0';
+        mirror.style.left = '-9999px';
+        mirror.style.boxSizing = style.boxSizing;
+        mirror.style.width = textarea.offsetWidth + 'px';
+        mirror.style.border = style.border;
+        mirror.style.padding = style.padding;
+        mirror.style.font = style.font;
+        mirror.style.fontFamily = style.fontFamily;
+        mirror.style.fontSize = style.fontSize;
+        mirror.style.fontWeight = style.fontWeight;
+        mirror.style.fontStyle = style.fontStyle;
+        mirror.style.letterSpacing = style.letterSpacing;
+        mirror.style.lineHeight = style.lineHeight;
+        mirror.style.textTransform = style.textTransform;
+        mirror.style.textAlign = style.textAlign;
+
+        mirror.textContent = textarea.value.substring(0, position);
+
+        const marker = document.createElement('span');
+        marker.textContent = '\u200b';
+        mirror.appendChild(marker);
+
+        document.body.appendChild(mirror);
+        const left = marker.offsetLeft;
+        const top = marker.offsetTop;
+        const height = marker.offsetHeight;
+        mirror.remove();
+
+        const resolvedHeight = height || parseFloat(style.lineHeight) || parseFloat(style.fontSize) || 14;
+        return { left, top, height: resolvedHeight };
+    }
+
+    positionVirtualCaret() {
+        if (!this.userInput) return;
+        const caret = this.ensureVirtualCaret();
+        if (!caret) return;
+
+        const style = window.getComputedStyle(this.userInput);
+        const borderLeft = parseFloat(style.borderLeftWidth) || 0;
+        const borderTop = parseFloat(style.borderTopWidth) || 0;
+
+        const position = this.userInput.value.length;
+        const coords = this.getCaretCoordinates(this.userInput, position);
+
+        const left = this.userInput.offsetLeft + borderLeft + coords.left - this.userInput.scrollLeft;
+        const top = this.userInput.offsetTop + borderTop + coords.top - this.userInput.scrollTop;
+
+        caret.style.left = left + 'px';
+        caret.style.top = top + 'px';
+        caret.style.height = coords.height + 'px';
+    }
+
+    updateVirtualInputUI() {
+        if (!this.userInput) return;
+
+        const showVirtual = !document.hidden && !document.hasFocus();
+        this.userInput.classList.toggle('virtual-focus', showVirtual);
+
+        const caret = this.ensureVirtualCaret();
+        if (!caret) return;
+
+        if (!showVirtual) {
+            caret.style.display = 'none';
+            return;
+        }
+
+        caret.style.display = 'block';
+        requestAnimationFrame(() => this.positionVirtualCaret());
+    }
+
+    clearFocusRetry() {
+        if (this._focusRetryIntervalId) {
+            clearInterval(this._focusRetryIntervalId);
+            this._focusRetryIntervalId = null;
+        }
+    }
+
+    async announcePanelState(open) {
+        try {
+            const normalizedOpen = open === true;
+            if (this._announcedPanelOpen === normalizedOpen) {
+                return;
+            }
+            this._announcedPanelOpen = normalizedOpen;
+
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            await chrome.runtime.sendMessage({
+                type: 'PAM_SIDE_PANEL_STATE',
+                open: normalizedOpen,
+                tabId: tab?.id ?? null
+            });
+        } catch {
+        }
+    }
+
+    requestInputFocus(options = {}) {
+        const aggressive = options.aggressive === true;
+
+        this.clearFocusRetry();
+
+        const attemptFocus = () => this.focusInput();
+
+        attemptFocus();
+        requestAnimationFrame(attemptFocus);
+
+        if (aggressive) {
+            const start = Date.now();
+            const maxDurationMs = 5000;
+
+            this._focusRetryIntervalId = setInterval(() => {
+                const didFocus = attemptFocus();
+                const timedOut = Date.now() - start > maxDurationMs;
+                if (didFocus || timedOut) {
+                    this.clearFocusRetry();
+                }
+            }, 100);
+        }
+    }
+
+    redirectTypingToInput(e) {
+        if (!this.userInput || this.userInput.disabled) return;
+        if (document.activeElement === this.userInput) return;
+        if (e.defaultPrevented) return;
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+        // Only intercept direct printable characters.
+        if (!e.key || e.key.length !== 1) return;
+
+        // Avoid hijacking Space when a button is focused (Space activates buttons).
+        if (e.key === ' ') return;
+
+        this.requestInputFocus({ aggressive: true });
+
+        const value = this.userInput.value || '';
+        const start = value.length;
+        const end = value.length;
+
+        this.userInput.value = value.slice(0, start) + e.key + value.slice(end);
+        const cursorPos = start + e.key.length;
+        try {
+            this.userInput.setSelectionRange(cursorPos, cursorPos);
+        } catch {
+        }
+        this.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+        e.preventDefault();
+    }
+
+    applyCapturedKey(key, shiftKey) {
+        if (!this.userInput || this.userInput.disabled) return;
+        this.focusInput();
+
+        if (key === 'Enter') {
+            if (shiftKey) {
+                this.userInput.value = (this.userInput.value || '') + '\n';
+                this.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                this.handleSendMessage();
+            }
+            return;
+        }
+
+        if (key === 'Backspace' || key === 'Delete') {
+            const value = this.userInput.value || '';
+            if (!value) return;
+            this.userInput.value = value.slice(0, -1);
+            this.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+            return;
+        }
+
+        if (typeof key === 'string' && key.length === 1) {
+            this.userInput.value = (this.userInput.value || '') + key;
+            this.userInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
     }
 
     setupEventListeners() {
@@ -91,11 +310,21 @@ class SidePanelApp {
             this.userInput.style.height = 'auto';
             this.userInput.style.height = Math.min(this.userInput.scrollHeight, 72) + 'px'; // 72px is roughly 3 lines
             this.highlightContextCommand();
+            this.updateVirtualInputUI();
         });
         
         // Highlight /context command on focus/blur
-        this.userInput.addEventListener('focus', () => this.highlightContextCommand());
-        this.userInput.addEventListener('blur', () => this.highlightContextCommand());
+        this.userInput.addEventListener('focus', () => {
+            this.highlightContextCommand();
+            this.updateVirtualInputUI();
+        });
+        this.userInput.addEventListener('blur', () => {
+            this.highlightContextCommand();
+            this.updateVirtualInputUI();
+        });
+
+        this.userInput.addEventListener('scroll', () => this.updateVirtualInputUI());
+        window.addEventListener('resize', () => this.updateVirtualInputUI());
         
         this.settingsBtn.addEventListener('click', () => {
             chrome.runtime.openOptionsPage();
@@ -104,6 +333,53 @@ class SidePanelApp {
         this.persistToggleBtn.addEventListener('click', () => {
             this.togglePersistentMode();
         });
+
+        document.addEventListener('keydown', (e) => this.redirectTypingToInput(e), { capture: true });
+
+        chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+            if (request?.type === 'PAM_PING_SIDE_PANEL') {
+                sendResponse({ ok: true });
+                return false;
+            }
+
+            if (request?.type === 'PAM_CAPTURE_KEY') {
+                this.applyCapturedKey(request.key, request.shiftKey);
+                sendResponse({ ok: true });
+                return false;
+            }
+
+            if (request?.type === 'FOCUS_USER_INPUT') {
+                this.requestInputFocus({ aggressive: true });
+                this.updateVirtualInputUI();
+                sendResponse({ ok: true });
+            }
+        });
+    }
+
+    focusInput() {
+        // Focus the input field if it exists and is not disabled
+        if (this.userInput && !this.userInput.disabled) {
+            if (document.activeElement === this.userInput) {
+                return true;
+            }
+
+            try {
+                window.focus();
+            } catch {
+            }
+            try {
+                this.userInput.focus({ preventScroll: true });
+            } catch {
+                this.userInput.focus();
+            }
+            try {
+                const cursorPos = this.userInput.value.length;
+                this.userInput.setSelectionRange(cursorPos, cursorPos);
+            } catch {
+            }
+            return document.activeElement === this.userInput;
+        }
+        return false;
     }
 
     async loadSettings() {
@@ -704,27 +980,29 @@ class SidePanelApp {
                 this.appendMessage('system', `CONTEXT ACQUIRED: ${tab.title ? tab.title.toUpperCase() : 'PAGE'}`);
                 
                 // If just scraping (no question), we're done
-                if (shouldScrapeOnly) {
-                    this.updateStatus('CONTEXT READY. ASK QUESTIONS.');
-                    // Clear input since we're not sending a message
-                    this.userInput.value = '';
-                    this.userInput.style.height = 'auto';
-                    this.userInput.classList.remove('has-context-command');
-                    this.cleanupHighlightOverlay();
-                    return;
-                }
-            } catch (error) {
+	                if (shouldScrapeOnly) {
+	                    this.updateStatus('CONTEXT READY. ASK QUESTIONS.');
+	                    // Clear input since we're not sending a message
+	                    this.userInput.value = '';
+	                    this.userInput.style.height = 'auto';
+	                    this.userInput.classList.remove('has-context-command');
+	                    this.cleanupHighlightOverlay();
+	                    this.updateVirtualInputUI();
+	                    return;
+	                }
+	            } catch (error) {
                 console.error('[SidePanel] Scraping error:', error);
                 this.appendMessage('system', `SCRAPING FAILED: ${error.message}`);
                 this.updateStatus('ERROR.');
-                // Clear input on error
-                this.userInput.value = '';
-                this.userInput.style.height = 'auto';
-                this.userInput.classList.remove('has-context-command');
-                this.cleanupHighlightOverlay();
-                return;
-            }
-        }
+	                // Clear input on error
+	                this.userInput.value = '';
+	                this.userInput.style.height = 'auto';
+	                this.userInput.classList.remove('has-context-command');
+	                this.cleanupHighlightOverlay();
+	                this.updateVirtualInputUI();
+	                return;
+	            }
+	        }
 
         // Auto-scrape current non-YouTube page if we don't already have it
         if (!contextMatch) {
@@ -738,15 +1016,16 @@ class SidePanelApp {
         }
 
         // Clear input and reset height
-        this.userInput.value = '';
-        this.userInput.style.height = 'auto';
-        this.userInput.classList.remove('has-context-command');
-        this.cleanupHighlightOverlay();
-        
-        // If we scraped but have no question, we already returned above
-        if (!userQuestion) {
-            return;
-        }
+	        this.userInput.value = '';
+	        this.userInput.style.height = 'auto';
+	        this.userInput.classList.remove('has-context-command');
+	        this.cleanupHighlightOverlay();
+	        this.updateVirtualInputUI();
+	        
+	        // If we scraped but have no question, we already returned above
+	        if (!userQuestion) {
+	            return;
+	        }
         
         // Add user message (use the question, not the command)
         this.appendMessage('user', userQuestion);
