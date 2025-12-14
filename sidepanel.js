@@ -1,12 +1,12 @@
 import { TranscriptService } from './lib/transcript.js';
-import { OpenAIService } from './lib/openai.js';
+import { OpenRouterService } from './lib/openrouter.js';
 import { ScraperService } from './lib/scraper.js';
 
 class SidePanelApp {
     constructor() {
         this.transcriptService = new TranscriptService();
         this.scraperService = new ScraperService();
-        this.openaiService = null;
+        this.openRouterService = null;
         this.transcript = null;
         this.scrapedContent = null;
         this.lastScrapedUrl = null;
@@ -385,7 +385,7 @@ class SidePanelApp {
     async loadSettings() {
         const settings = await chrome.storage.sync.get(['apiKey', 'model']);
         if (settings.apiKey) {
-            this.openaiService = new OpenAIService(settings.apiKey, settings.model);
+            this.openRouterService = new OpenRouterService(settings.apiKey, settings.model);
             this.updateStatus('PAM READY.');
             
             // Remove any persistent error messages about missing API key
@@ -808,9 +808,9 @@ class SidePanelApp {
         let text = this.userInput.value.trim();
         if (!text) return;
 
-        if (!this.openaiService) {
+        if (!this.openRouterService) {
             await this.loadSettings();
-            if (!this.openaiService) {
+            if (!this.openRouterService) {
                 this.appendMessage('system', 'ERROR: API KEY NOT CONFIGURED.');
                 return;
             }
@@ -1068,7 +1068,7 @@ class SidePanelApp {
                 contextType = 'transcript';
             }
 
-            const response = await this.openaiService.generateResponse(
+            const response = await this.openRouterService.generateResponse(
                 this.chatHistory, 
                 contextContent,
                 contextType

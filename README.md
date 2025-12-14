@@ -1,12 +1,12 @@
 # Pam - Chrome Extension
 
-A minimalist, terminal-style chatbot assistant that auto-pulls context from the page you’re on (articles or YouTube transcripts) and lets you chat with OpenAI about it.
+A minimalist, terminal-style chatbot assistant that auto-pulls context from the page you're on (articles or YouTube transcripts) and lets you chat with cutting-edge AI models via OpenRouter.
 
 ## Features
 
 - **Cryptic UI**: Clean, dark-mode, terminal-inspired interface.
 - **Auto Context**: Scrapes the active webpage or YouTube transcript (no caption API fetches/CORS issues) without extra commands.
-- **OpenAI Integration**: Uses your own OpenAI API Key (supports GPT-4o, GPT-4o-mini, etc.).
+- **OpenRouter Integration**: Uses your own OpenRouter API Key (supports GPT-5.2, Claude Sonnet 4.5, Gemini 3 Pro, Grok 4.1, DeepSeek v3.2, and more).
 - **Side Panel**: Stays open alongside the content for uninterrupted reading/viewing.
 
 ## Installation
@@ -21,8 +21,8 @@ A minimalist, terminal-style chatbot assistant that auto-pulls context from the 
 
 1.  Click the extension icon in the toolbar to open the Side Panel.
 2.  Click the **⚙ (Settings)** icon in the status bar.
-3.  Enter your **OpenAI API Key** (get one at [platform.openai.com](https://platform.openai.com/api-keys)).
-4.  Select your preferred model (e.g., `gpt-4o-mini` for speed/cost, `gpt-4o` for intelligence).
+3.  Enter your **OpenRouter API Key** (get one at [openrouter.ai](https://openrouter.ai/keys)).
+4.  Select your preferred model from the cutting-edge options (e.g., `google/gemini-2.5-flash` for speed/cost, `anthropic/claude-sonnet-4.5` for intelligence).
 5.  Click **SAVE_CONFIG**.
 
 ## Usage
