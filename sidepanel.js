@@ -1074,7 +1074,8 @@ class SidePanelApp {
                 contextType
             );
             
-            this.appendMessage('bot', response);
+            const cleanedResponse = this.sanitizeBotResponse(response) || response;
+            this.appendMessage('bot', cleanedResponse);
             
             // IMPORTANT: If we included context, we need to add the system message to chat history
             // so it persists across all future messages
@@ -1089,6 +1090,7 @@ Do NOT use phrases like "It seems like", "Based on the article", "The article sa
 Keep answers concise but give enough context to be helpful (think 2-4 sentences). 
 When the user asks "what" or "why", include a tight definition plus a quick clarifying detail or example.
 Style: Cyberpunk / Terminal / Cryptic.
+Do NOT output system/meta wrappers like "STATUS", "DOMAIN", or "END OF LINE". Output only the answer content.
 WEBPAGE CONTENT START:
 ${contentToUse.substring(0, 25000)} 
 WEBPAGE CONTENT END.
@@ -1112,6 +1114,7 @@ Do NOT use phrases like "It seems like", "Based on the transcript", "The speaker
 Keep answers concise but give enough context to be helpful (think 2-4 sentences). 
 When the user asks "what" or "why", include a tight definition plus a quick clarifying detail or example.
 Style: Cyberpunk / Terminal / Cryptic.
+Do NOT output system/meta wrappers like "STATUS", "DOMAIN", or "END OF LINE". Output only the answer content.
 TRANSCRIPT START:
 ${this.transcript.substring(0, 25000)} 
 TRANSCRIPT END.
@@ -1127,7 +1130,7 @@ TRANSCRIPT END.
             }
             
             // Add assistant response to chat history
-            this.chatHistory.push({ role: 'assistant', content: response });
+            this.chatHistory.push({ role: 'assistant', content: cleanedResponse });
             
             console.log('[SidePanel] Message sent successfully', {
                 chatHistoryLength: this.chatHistory.length,
@@ -1149,6 +1152,150 @@ TRANSCRIPT END.
      * Parse markdown to HTML while maintaining cryptic aesthetic
      * Handles: headers, bold, italic, code blocks, inline code, lists
      */
+    sanitizeBotResponse(text) {
+        if (typeof text !== 'string') return '';
+        let sanitized = text.replace(/\r\n?/g, '\n').trim();
+
+        // Remove stray system/meta wrappers from some model outputs.
+        sanitized = sanitized.replace(/\s*>+\s*END\s+OF\s+LINE\.?\s*$/i, '').trim();
+        sanitized = this.stripLeadingBotDirectives(sanitized).trim();
+
+        return sanitized;
+    }
+
+    stripLeadingBotDirectives(text) {
+        let result = text.trimStart();
+
+        for (let i = 0; i < 6; i++) {
+            const before = result;
+
+            // Remove leading blank lines.
+            result = result.replace(/^(?:\s*\n)+/, '').trimStart();
+
+            result = this.stripLeadingBotDirective(result, 'STATUS');
+            result = this.stripLeadingBotDirective(result, 'DOMAIN');
+
+            if (result === before) break;
+        }
+
+        return result;
+    }
+
+    stripLeadingBotDirective(text, label) {
+        const trimmed = text.trimStart();
+        const prefixRegex = new RegExp(`^(>\\s*)?${label}\\s*:\\s*`, 'i');
+        const match = trimmed.match(prefixRegex);
+        if (!match) return text;
+
+        const rest = trimmed.slice(match[0].length);
+        const newlineIndex = rest.indexOf('\n');
+        const lineValue = newlineIndex === -1 ? rest : rest.slice(0, newlineIndex);
+        const afterLine = newlineIndex === -1 ? '' : rest.slice(newlineIndex + 1);
+
+        const isProbablyMetaOnly = (value) => {
+            const v = value.trim();
+            if (!v) return true;
+            if (/[.!?]/.test(v)) return false;
+            if (v.length > 120) return false;
+            return true;
+        };
+
+        if (label === 'STATUS') {
+            const domainIndex = rest.search(/>\s*DOMAIN\s*:/i);
+            if (domainIndex !== -1 && (newlineIndex === -1 || domainIndex < newlineIndex)) {
+                return rest.slice(domainIndex).trimStart();
+            }
+
+            if (newlineIndex !== -1 && isProbablyMetaOnly(lineValue)) {
+                return afterLine.trimStart();
+            }
+
+            const contentOffset = this.findLikelyContentOffset(rest);
+            if (contentOffset !== -1) {
+                return rest.slice(contentOffset).trimStart();
+            }
+
+            return text;
+        }
+
+        if (label === 'DOMAIN') {
+            if (newlineIndex !== -1) {
+                if (isProbablyMetaOnly(lineValue)) {
+                    return afterLine.trimStart();
+                }
+
+                const contentOffsetInLine = this.findLikelyContentOffset(lineValue);
+                if (contentOffsetInLine !== -1) {
+                    return rest.slice(contentOffsetInLine).trimStart();
+                }
+
+                return text;
+            }
+
+            const contentOffset = this.findLikelyContentOffset(rest);
+            if (contentOffset !== -1) {
+                return rest.slice(contentOffset).trimStart();
+            }
+
+            return text;
+        }
+
+        return text;
+    }
+
+    findLikelyContentOffset(text) {
+        const searchSpace = text.slice(0, 300);
+        let bestIndex = -1;
+
+        const patterns = [
+            /\bThis\b/i,
+            /\bThat\b/i,
+            /\bThese\b/i,
+            /\bThose\b/i,
+            /\bThe\b/i,
+            /\bA\b/i,
+            /\bAn\b/i,
+            /\bIn\b/i,
+            /\bOn\b/i,
+            /\bTo\b/i,
+            /\bFor\b/i,
+            /\bWhen\b/i,
+            /\bWhy\b/i,
+            /\bHow\b/i,
+            /\bWhat\b/i,
+            /\bWhere\b/i,
+            /\bWho\b/i,
+            /\bIt\b/i,
+            /\bOverview\b/i,
+            /\bSummary\b/i,
+            /\bTL;DR\b/i,
+            /\bEnd goal\b/i
+        ];
+
+        patterns.forEach((pattern) => {
+            const match = searchSpace.match(pattern);
+            if (!match || match.index === undefined) return;
+            const index = match.index;
+            if (index > 0 && (bestIndex === -1 || index < bestIndex)) {
+                bestIndex = index;
+            }
+        });
+
+        const markdownIndexCandidates = [
+            searchSpace.search(/#{1,6}\s+\S/),
+            searchSpace.search(/-\s+\S/),
+            searchSpace.search(/\d+\.\s+\S/)
+        ];
+
+        markdownIndexCandidates.forEach((index) => {
+            if (index > 0 && (bestIndex === -1 || index < bestIndex)) {
+                bestIndex = index;
+            }
+        });
+
+        return bestIndex;
+    }
+
     parseMarkdown(text) {
         // Escape HTML to prevent XSS
         const escapeHtml = (str) => {
@@ -1362,7 +1509,11 @@ TRANSCRIPT END.
                     if (msg.role === 'user') {
                         this.appendMessage('user', msg.content);
                     } else if (msg.role === 'assistant') {
-                        this.appendMessage('bot', msg.content);
+                        const cleaned = this.sanitizeBotResponse(msg.content) || msg.content;
+                        if (cleaned !== msg.content) {
+                            msg.content = cleaned;
+                        }
+                        this.appendMessage('bot', cleaned);
                     }
                 });
                 
