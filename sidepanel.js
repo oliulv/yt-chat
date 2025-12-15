@@ -19,9 +19,10 @@ class SidePanelApp {
         this.scrapedContentSent = false;
         this.persistentMode = false;
         this._highlightCleanup = [];
-        this._focusRetryIntervalId = null;
-        this._announcedPanelOpen = null;
-        this._virtualCaretEl = null;
+	        this._focusRetryIntervalId = null;
+	        this._announcedPanelOpen = null;
+	        this._virtualCaretEl = null;
+	        this._pendingWindowFocusInputFocusUntil = 0;
         
         // UI Elements
         this.statusText = document.getElementById('status-text');
@@ -42,15 +43,21 @@ class SidePanelApp {
 
         this.requestInputFocus({ aggressive: true });
         this.updateVirtualInputUI();
-        document.addEventListener('visibilitychange', () => {
-            this.announcePanelState(!document.hidden);
-            if (!document.hidden) {
-                this.requestInputFocus({ aggressive: true });
-            }
-            this.updateVirtualInputUI();
-        });
-        window.addEventListener('focus', () => this.updateVirtualInputUI());
-        window.addEventListener('blur', () => this.updateVirtualInputUI());
+	        document.addEventListener('visibilitychange', () => {
+	            this.announcePanelState(!document.hidden);
+	            if (!document.hidden) {
+	                this.requestInputFocus({ aggressive: true });
+	            }
+	            this.updateVirtualInputUI();
+	        });
+	        window.addEventListener('focus', () => {
+	            if (Date.now() < this._pendingWindowFocusInputFocusUntil) {
+	                this._pendingWindowFocusInputFocusUntil = 0;
+	                this.requestInputFocus({ aggressive: true });
+	            }
+	            this.updateVirtualInputUI();
+	        });
+	        window.addEventListener('blur', () => this.updateVirtualInputUI());
 
         await this.loadSettings();
         await this.loadPersistentMode();
@@ -307,8 +314,16 @@ class SidePanelApp {
 
         // Auto-resize textarea
         this.userInput.addEventListener('input', () => {
+            const maxHeightPx = 72; // Roughly 3 lines
+            const wasAtBottom =
+                this.userInput.scrollTop + this.userInput.clientHeight >= this.userInput.scrollHeight - 1;
+
             this.userInput.style.height = 'auto';
-            this.userInput.style.height = Math.min(this.userInput.scrollHeight, 72) + 'px'; // 72px is roughly 3 lines
+            this.userInput.style.height = Math.min(this.userInput.scrollHeight, maxHeightPx) + 'px';
+
+            if (wasAtBottom) {
+                this.userInput.scrollTop = this.userInput.scrollHeight;
+            }
             this.highlightContextCommand();
             this.updateVirtualInputUI();
         });
@@ -343,18 +358,24 @@ class SidePanelApp {
             }
 
             if (request?.type === 'PAM_CAPTURE_KEY') {
+                // Content scripts also broadcast `PAM_CAPTURE_KEY` directly, but the background worker
+                // is responsible for forwarding + buffering during panel startup.
+                if (sender?.tab) {
+                    return false;
+                }
                 this.applyCapturedKey(request.key, request.shiftKey);
                 sendResponse({ ok: true });
                 return false;
             }
 
-            if (request?.type === 'FOCUS_USER_INPUT') {
-                this.requestInputFocus({ aggressive: true });
-                this.updateVirtualInputUI();
-                sendResponse({ ok: true });
-            }
-        });
-    }
+	            if (request?.type === 'FOCUS_USER_INPUT') {
+	                this._pendingWindowFocusInputFocusUntil = Date.now() + 2000;
+	                this.requestInputFocus({ aggressive: true });
+	                this.updateVirtualInputUI();
+	                sendResponse({ ok: true });
+	            }
+	        });
+	    }
 
     focusInput() {
         // Focus the input field if it exists and is not disabled
@@ -375,6 +396,10 @@ class SidePanelApp {
             try {
                 const cursorPos = this.userInput.value.length;
                 this.userInput.setSelectionRange(cursorPos, cursorPos);
+            } catch {
+            }
+            try {
+                this.userInput.scrollTop = this.userInput.scrollHeight;
             } catch {
             }
             return document.activeElement === this.userInput;

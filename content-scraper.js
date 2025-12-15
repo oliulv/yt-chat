@@ -1,5 +1,12 @@
+(() => {
 // Universal content script for scraping webpage content
 // Works on any webpage to extract readable article/blog content
+
+const sentinel = '__PAM_YT_CHAT_CONTENT_SCRAPER_LOADED__';
+if (globalThis[sentinel]) {
+    return;
+}
+globalThis[sentinel] = true;
 
 console.log('[ContentScraper] Loaded for', window.location.href);
 
@@ -44,13 +51,33 @@ document.addEventListener(
     'keydown',
     (event) => {
         if (!shouldCaptureKeyEvent(event)) return;
+        let didSend = false;
+        try {
+            chrome.runtime.sendMessage(
+                { type: 'PAM_CAPTURE_KEY', key: event.key, shiftKey: event.shiftKey },
+                () => {
+                    const error = chrome.runtime.lastError;
+                    if (!error) return;
+
+                    const message = error?.message || String(error);
+                    if (
+                        message.includes('Extension context invalidated') ||
+                        message.includes('Receiving end does not exist')
+                    ) {
+                        // Extension reloaded/unavailable; stop swallowing keys.
+                        pamCaptureEnabled = false;
+                    }
+                }
+            );
+            didSend = true;
+        } catch {
+            // Extension reloaded/unavailable; stop swallowing keys.
+            pamCaptureEnabled = false;
+        }
+
+        if (!didSend) return;
         event.preventDefault();
         event.stopPropagation();
-
-        chrome.runtime.sendMessage(
-            { type: 'PAM_CAPTURE_KEY', key: event.key, shiftKey: event.shiftKey },
-            () => void chrome.runtime.lastError
-        );
     },
     { capture: true }
 );
@@ -271,3 +298,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true; // Indicates we'll send response asynchronously
     }
 });
+
+})();

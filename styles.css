@@ -130,7 +130,7 @@ textarea {
     min-height: 38px;
     max-height: 200px;
     transition: border-color 0.2s;
-    overflow-y: hidden;
+    overflow-y: auto;
 }
 
 textarea:focus {

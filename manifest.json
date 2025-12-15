@@ -23,12 +23,15 @@
     "default_title": "Open Pam"
   },
   "commands": {
-    "_execute_action": {
+    "open_side_panel": {
       "suggested_key": {
         "default": "Alt+P",
         "mac": "Alt+P"
       },
       "description": "Open Pam side panel"
+    },
+    "_execute_action": {
+      "description": "Open Pam side panel (legacy)"
     }
   },
   "content_scripts": [
