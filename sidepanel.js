@@ -119,6 +119,8 @@ class SidePanelApp {
 
     getCaretCoordinates(textarea, position) {
         const style = window.getComputedStyle(textarea);
+        const borderLeftWidth = parseFloat(style.borderLeftWidth) || 0;
+        const borderRightWidth = parseFloat(style.borderRightWidth) || 0;
 
         const mirror = document.createElement('div');
         mirror.style.position = 'absolute';
@@ -129,7 +131,14 @@ class SidePanelApp {
         mirror.style.top = '0';
         mirror.style.left = '-9999px';
         mirror.style.boxSizing = style.boxSizing;
-        mirror.style.width = textarea.offsetWidth + 'px';
+        // Match the textarea's inner text wrapping width (exclude scrollbar width when present).
+        if (style.boxSizing === 'border-box') {
+            mirror.style.width = textarea.clientWidth + borderLeftWidth + borderRightWidth + 'px';
+        } else {
+            const paddingLeft = parseFloat(style.paddingLeft) || 0;
+            const paddingRight = parseFloat(style.paddingRight) || 0;
+            mirror.style.width = Math.max(0, textarea.clientWidth - paddingLeft - paddingRight) + 'px';
+        }
         mirror.style.border = style.border;
         mirror.style.padding = style.padding;
         mirror.style.font = style.font;
@@ -156,6 +165,32 @@ class SidePanelApp {
 
         const resolvedHeight = height || parseFloat(style.lineHeight) || parseFloat(style.fontSize) || 14;
         return { left, top, height: resolvedHeight };
+    }
+
+    scrollUserInputToCaret() {
+        if (!this.userInput) return;
+        const textarea = this.userInput;
+
+        let position = textarea.value.length;
+        try {
+            if (typeof textarea.selectionEnd === 'number') {
+                position = textarea.selectionEnd;
+            }
+        } catch {
+        }
+
+        const coords = this.getCaretCoordinates(textarea, position);
+        const caretTop = coords.top;
+        const caretBottom = coords.top + coords.height;
+
+        const viewTop = textarea.scrollTop;
+        const viewBottom = textarea.scrollTop + textarea.clientHeight;
+
+        if (caretTop < viewTop) {
+            textarea.scrollTop = caretTop;
+        } else if (caretBottom > viewBottom) {
+            textarea.scrollTop = caretBottom - textarea.clientHeight;
+        }
     }
 
     positionVirtualCaret() {
@@ -315,14 +350,23 @@ class SidePanelApp {
         // Auto-resize textarea
         this.userInput.addEventListener('input', () => {
             const maxHeightPx = 72; // Roughly 3 lines
-            const wasAtBottom =
-                this.userInput.scrollTop + this.userInput.clientHeight >= this.userInput.scrollHeight - 1;
+            const valueLength = (this.userInput.value || '').length;
+            const cursorAtEnd = (() => {
+                try {
+                    return this.userInput.selectionStart === valueLength && this.userInput.selectionEnd === valueLength;
+                } catch {
+                    return true;
+                }
+            })();
 
             this.userInput.style.height = 'auto';
             this.userInput.style.height = Math.min(this.userInput.scrollHeight, maxHeightPx) + 'px';
 
-            if (wasAtBottom) {
+            // Keep the caret visible as content overflows the max height (auto-scroll while typing).
+            if (cursorAtEnd) {
                 this.userInput.scrollTop = this.userInput.scrollHeight;
+            } else {
+                this.scrollUserInputToCaret();
             }
             this.highlightContextCommand();
             this.updateVirtualInputUI();
